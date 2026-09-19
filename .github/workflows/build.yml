@@ -16,7 +16,7 @@ jobs:
   build:
     runs-on: windows-latest
     permissions:
-      contents: read
+      contents: write   # ← 唯一改动点 1：read → write
 
     steps:
       - uses: actions/checkout@v5
@@ -47,8 +47,19 @@ jobs:
           path: WandEnhancer/bin/Release/WandEnhancer.exe
           if-no-files-found: error
 
-      # The published artifact is always the offline build; this only proves the
-      # opt-in variant still compiles and passes its checks on every push.
+      # ===== 新增：自动发布到 latest Release =====
+      - name: Publish to latest release
+        if: github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/master'
+        uses: softprops/action-gh-release@v3
+        with:
+          tag_name: latest
+          name: Latest WandEnhancer Build
+          prerelease: true
+          files: WandEnhancer/bin/Release/WandEnhancer.exe
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+      # ===== 新增结束 =====
+
       - name: Verify opt-in update notifications build
         shell: pwsh
         run: ./build.ps1 -Configuration Release -EnableUpdateNotifications
