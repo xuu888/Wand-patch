@@ -1,12 +1,13 @@
-name: Auto Sync Upstream
+name: Auto Sync Upstream & Build
 
 on:
   schedule:
-    - cron: '17 0 * * *'   # 每天 UTC 0:17 ≈ 北京 8:17
+    - cron: '17 0 * * *'
   workflow_dispatch:
 
 permissions:
   contents: write
+  actions: write
 
 jobs:
   sync:
@@ -23,5 +24,11 @@ jobs:
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git remote add upstream https://github.com/k1tbyte/Wand-Enhancer.git
           git fetch upstream
-          git merge upstream/main --no-edit || git merge upstream/master --no-edit
+          git merge upstream/master --no-edit
           git push origin HEAD
+
+      - name: Trigger Build executable
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh workflow run build.yml --repo ${{ github.repository }} --ref master
