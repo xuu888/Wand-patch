@@ -1,0 +1,27 @@
+name: Auto Sync Upstream
+
+on:
+  schedule:
+    - cron: '17 0 * * *'   # 每天 UTC 0:17 ≈ 北京 8:17
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  sync:
+    if: github.event.repository.fork
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Sync from k1tbyte/Wand-Enhancer
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git remote add upstream https://github.com/k1tbyte/Wand-Enhancer.git
+          git fetch upstream
+          git merge upstream/main --no-edit || git merge upstream/master --no-edit
+          git push origin HEAD
