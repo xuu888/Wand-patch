@@ -16,7 +16,7 @@ jobs:
   build:
     runs-on: windows-latest
     permissions:
-      contents: write   # ← 唯一改动点 1：read → write
+      contents: write
 
     steps:
       - uses: actions/checkout@v5
@@ -47,7 +47,7 @@ jobs:
           path: WandEnhancer/bin/Release/WandEnhancer.exe
           if-no-files-found: error
 
-# ===== 自动发布 Latest Release =====
+      # ===== 自动发布 Latest Release =====
       - name: Extract version from project
         id: version
         shell: pwsh
@@ -69,7 +69,6 @@ jobs:
         run: |
           $version = "${{ steps.version.outputs.version }}"
           $content = Get-Content CHANGELOG.md -Raw
-          # 匹配 ## [2.1.0.0] 到下一个 ## 之间的内容
           $pattern = "##\s*\[$version\][\s\S]*?(?=##\s*\[|$)"
           $match = [regex]::Match($content, $pattern)
           if ($match.Success) {
@@ -78,11 +77,10 @@ jobs:
             $body = "See commit history for changes."
           }
           $body = $body.Trim()
-          # 写多行输出
+          $delimiter = "EOF_$(Get-Random -Maximum 99999)"
+          "changelog<<$delimiter" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
           $body | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
-          "changelog<<__EOF__" >> $env:GITHUB_OUTPUT
-          $body >> $env:GITHUB_OUTPUT
-          "__EOF__" >> $env:GITHUB_OUTPUT
+          "$delimiter" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
 
       - name: Package executable
         shell: pwsh
@@ -108,6 +106,8 @@ jobs:
           GITHUB_TOKEN: ${{ github.token }}
       # ===== 结束 =====
 
+      # The published artifact is always the offline build; this only proves the
+      # opt-in variant still compiles and passes its checks on every push.
       - name: Verify opt-in update notifications build
         shell: pwsh
         run: ./build.ps1 -Configuration Release -EnableUpdateNotifications
