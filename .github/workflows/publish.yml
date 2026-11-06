@@ -1,0 +1,86 @@
+name: Publish Latest Release
+
+on:
+  workflow_run:
+    workflows: ["Build executable"]
+    types: [completed]
+    branches: [master]
+
+permissions:
+  contents: write     # 建 tag / 建 Release
+  actions: read       # 跨 run 读 artifact，缺了会 403
+
+jobs:
+  publish:
+    if: >-
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.event != 'pull_request' &&
+      github.event.workflow_run.head_repository.full_name == github.repository
+    runs-on: ubuntu-24.04
+
+    steps:
+      - name: Read version and changelog from the exact built commit
+        id: meta
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          SHA: ${{ github.event.workflow_run.head_sha }}
+        run: |
+          set -euo pipefail
+          csproj="$(gh api "repos/$REPO/contents/WandEnhancer/WandEnhancer.csproj?ref=$SHA" --jq .content | base64 -d)"
+          ver="$(printf '%s' "$csproj" | grep -oP '<Version>\K[^<]+' | head -n1 || true)"
+          if [ -z "$ver" ]; then
+            ver="$(printf '%s' "$csproj" | grep -oP '<AssemblyVersion>\K[^<]+' | head -n1 || true)"
+          fi
+          [ -z "$ver" ] && ver="2.1.0.0"
+
+          changelog="$(gh api "repos/$REPO/contents/CHANGELOG.md?ref=$SHA" --jq .content 2>/dev/null | base64 -d || true)"
+
+          VER="$ver" CHANGELOG="$changelog" python3 - <<'PY' >> "$GITHUB_OUTPUT"
+          import os, re, uuid
+          ver = os.environ["VER"]
+          text = os.environ.get("CHANGELOG", "")
+          m = re.search(r"##\s*\[" + re.escape(ver) + r"\][\s\S]*?(?=##\s*\[|$)", text)
+          body = re.sub(r"^##\s*\[[^\]]+\]\s*", "", m.group(0)).strip() if m else "See commit history for changes."
+          d = "EOF_" + uuid.uuid4().hex[:8]
+          print(f"version={ver}")
+          print(f"changelog<<{d}")
+          print(body)
+          print(d)
+          PY
+
+      - name: Download the executable from that build
+        uses: actions/download-artifact@v7
+        with:
+          name: WandEnhancer-unsigned
+          run-id: ${{ github.event.workflow_run.id }}
+          github-token: ${{ github.token }}
+          path: ${{ runner.temp }}/artifact
+
+      - name: Package zip
+        env:
+          VER: ${{ steps.meta.outputs.version }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$GITHUB_WORKSPACE/dist"
+          cd "$RUNNER_TEMP/artifact"
+          ls -la
+          zip -q -r "$GITHUB_WORKSPACE/dist/WandEnhancer-x64-v${VER}.zip" .
+
+      - name: Publish release
+        uses: softprops/action-gh-release@v3
+        with:
+          tag_name: v${{ steps.meta.outputs.version }}-build.${{ github.event.workflow_run.run_number }}
+          name: WandEnhancer ${{ steps.meta.outputs.version }} (build ${{ github.event.workflow_run.run_number }})
+          target_commitish: ${{ github.event.workflow_run.head_sha }}
+          body: |
+            ${{ steps.meta.outputs.changelog }}
+
+            ---
+            Built from [`${{ github.event.workflow_run.head_sha }}`](${{ github.event.workflow_run.html_url }})
+          files: dist/WandEnhancer-x64-v${{ steps.meta.outputs.version }}.zip
+          fail_on_unmatched_files: true
+          overwrite_files: true
+          make_latest: true
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
